@@ -9,6 +9,7 @@ const upload = multer({ dest: "./public" }); // Adjust destination directory as 
 const fs = require("fs");
 const jwt = require("jsonwebtoken");
 
+
 const saltRounds = 10;
 
 app.use(cors());
@@ -66,10 +67,12 @@ const verifyAccessToken = (req, res, next) => {
   }
 };
 
+
 // Middleware to generate new access token from refresh token
 const generateAccessToken = (user) => {
   return jwt.sign({ emailid: user.emailid }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '15m' });
 };
+
 
 // Sign-up post
 app.post("/lmsusers/signup", async (req, res) => {
