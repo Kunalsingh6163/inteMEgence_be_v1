@@ -1,0 +1,5 @@
+
+// Middleware to generate new access token from refresh token
+const generateAccessToken = (user) => {
+  return jwt.sign({ emailid: user.emailid }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '15m' });
+};
