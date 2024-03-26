@@ -4,10 +4,11 @@ const app = express();
 const cors = require("cors");
 const bcrypt = require("bcrypt");
 const mongoose = require("mongoose");
-const multer = require("multer")
-const upload = multer({ storage: "./public" })
-const fs = require("fs")
-const jwt = require("jsonwebtoken")
+const multer = require("multer");
+const upload = multer({ dest: "./public" }); // Adjust destination directory as needed
+const fs = require("fs");
+const jwt = require("jsonwebtoken");
+
 
 const saltRounds = 10;
 
@@ -24,10 +25,11 @@ const UserSchema = new mongoose.Schema({
   mobile: String,
   emailid: String,
   password: String,
-  message: String,
+  refreshToken: String,
 });
 
 const UserModel = mongoose.model("User", UserSchema);
+
 const PaymentSchema = new mongoose.Schema({
   name:String,
   emailid:String,
@@ -48,73 +50,94 @@ const ContactSchema = new mongoose.Schema({
 
 const ContactModel = mongoose.model("Contact", ContactSchema);
 
+// Middleware to verify access token
+const verifyAccessToken = (req, res, next) => {
+  const accessToken = req.cookies.access_token;
+
+  if (!accessToken) {
+    return res.status(401).json({ message: "Access token not found" });
+  }
+
+  try {
+    const decoded = jwt.verify(accessToken, process.env.ACCESS_TOKEN_SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    return res.status(403).json({ message: "Invalid access token" });
+  }
+};
+
+
+// Middleware to generate new access token from refresh token
+const generateAccessToken = (user) => {
+  return jwt.sign({ emailid: user.emailid }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '15m' });
+};
+
+
 // Sign-up post
 app.post("/lmsusers/signup", async (req, res) => {
   try {
-    console.log(req.body);
     const { name, mobile, emailid, password } = req.body;
 
+    // Check if user already exists with the provided email id
+    const existingUser = await UserModel.findOne({ emailid });
+    if (existingUser) {
+      return res.status(400).json({ error: "User already exists with this email id" });
+    }
+
+    // Hash the password
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
+    // Create a new user
     const newUser = new UserModel({
       name,
       mobile,
       emailid,
-      password: hashedPassword, 
+      password: hashedPassword,
     });
 
+    // Save the new user to the database
     await newUser.save();
-    res.json(newUser);
+
+    // Respond with the access token
+    const accessToken = generateAccessToken(newUser);
+    res.cookie('access_token', accessToken, {
+      httpOnly: true,
+      secure: true,
+      maxAge: 15 * 60 * 1000 // Expires in 15mins
+    });
+    res.status(201).json({ message: "User created successfully" });
   } catch (err) {
     console.error("Error:", err.message);
     res.status(500).json({ error: "Internal server error" });
   }
 });
-
-// Signup get method
-app.get("/lmsusers/signup", async (req, res) => {
-  try {
-    const users = await UserModel.find();
-
-    if (!users || users.length === 0) {
-      return res.status(401).send("No users found");
-    } else {
-      res.status(200).json({ message: "Users found.", users });
-    }
-  } catch (err) {
-    console.error("Error:", err.message);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// function for auth header
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1];
-  if (token == null) return res.status(401).json({ message: "Unauthorized" });
-  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ message: "Forbidden" });
-    req.user = user;
-    next();
-  });
-}
 
 // login api with post method
-app.post("/lmsusers/login", authenticateToken, async (req, res) => {
+app.post("/lmsusers/login", async (req, res) => {
   try {
-    const user = await UserModel.findOne({ emailid: req.body.emailid });
+    const { emailid, password } = req.body;
+
+    // Check if the user exists
+    const user = await UserModel.findOne({ emailid });
     if (!user) {
       return res.status(404).json({ message: "User does not exist" });
     }
-    
-    const passwordMatch = await bcrypt.compare(req.body.password, user.password);
-    if (passwordMatch) {
-      const accessToken = jwt.sign({ emailid: user.emailid}, process.env.ACCESS_TOKEN_SECRET);
-      console.log("Access Token:", accessToken);
 
-      res.status(200).json({ message: "Login successful", accessToken: accessToken });
+    // Check if the password is correct
+    const passwordMatch = await bcrypt.compare(password, user.password);
+    if (passwordMatch) {
+      // Respond with the existing access token
+      const accessToken = generateAccessToken(user);
+      res.cookie('access_token', accessToken, {
+        httpOnly: true,
+        secure: true,
+        maxAge: 15 * 60 * 1000 // Expires in 15mins
+      });
+      return res.status(200).json({ message: "Login successful" });
     } else {
-      res.status(400).json({ message: "Incorrect password" });
+      // Incorrect password
+      return res.status(400).json({ message: "Incorrect password" });
     }
   } catch (error) {
     console.error("Error executing query", error);
@@ -122,19 +145,39 @@ app.post("/lmsusers/login", authenticateToken, async (req, res) => {
   }
 });
 
-// get method for login
-app.get("/lmsusers/login", async (req, res) => {
+// Refresh token endpoint
+app.post("/lmsusers/refresh-token", async (req, res) => {
   try {
-    const users = await UserModel.find();
-    res.status(200).json(users);
+    const refreshToken = req.cookies.refresh_token;
+
+    // Verify the refresh token
+    const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
+
+    // Find the user by email
+    const user = await UserModel.findOne({ emailid: decoded.emailid });
+
+    if (!user || user.refreshToken !== refreshToken) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    // Generate a new access token
+    const accessToken = generateAccessToken(user);
+
+    // Send the new access token to the client
+    res.cookie('access_token', accessToken, {
+      httpOnly: true,
+      secure: true,
+      maxAge: 15 * 60 * 1000 // Expires in 15mins
+    });
+    res.status(200).json({ message: "Token refreshed", accessToken });
   } catch (error) {
-    console.error("Error retrieving users:", error);
+    console.error("Error refreshing token", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
 
 // image upload route
-app.post("/lmsusers/paymentConfirmation", upload.single('image'), async (req, res, next) => {
+app.post("/lmsusers/paymentConfirmation", verifyAccessToken, upload.single('image'), async (req, res, next) => {
   try {
       // Read the uploaded file
       const imagePath = req.file.path;
@@ -184,7 +227,43 @@ app.post("/lmsusers/contact", async (req, res) => {
     res.status(500).send('Server Error');
   }
 });
+// =====================================  GET METHODS  =====================================
+// Signup get method
+app.get("/lmsusers/signup", async (req, res) => {
+  try {
+    const users = await UserModel.find();
 
-app.listen(8000, () => {
-  console.log("Server has started on port 8000");
+    if (!users || users.length === 0) {
+      return res.status(401).send("No users found");
+    } else {
+      res.status(200).json({ message: "Users found.", users });
+    }
+  } catch (err) {
+    console.error("Error:", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// get method for login
+app.get("/lmsusers/login", async (req, res) => {
+  try {
+    const users = await UserModel.find();
+    res.status(200).json(users);
+  } catch (error) {
+    console.error("Error retrieving users:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+// contact get api
+app.get("/lmsusers/contact", async (req, res) => {
+  try {
+    const contacts = await ContactModel.find();
+    res.json(contacts);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server Error');
+  }
+});
+app.listen(process.env.PORT || 8000, () => {
+  console.log("Server has started");
 });
