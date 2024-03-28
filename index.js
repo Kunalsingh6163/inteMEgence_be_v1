@@ -8,6 +8,7 @@ const multer = require("multer");
 const upload = multer({ dest: "./public" }); // Adjust destination directory as needed
 const fs = require("fs");
 const jwt = require("jsonwebtoken");
+const bodyParser = require('body-parser');
 
 
 const saltRounds = 10;
@@ -34,10 +35,7 @@ const PaymentSchema = new mongoose.Schema({
   name:String,
   emailid:String,
   mobile:String,
-   image: {
-     data: String,
-     contentType: String
- }
+  files:Object
  });
  const PaymentModel = mongoose.model("Payment",PaymentSchema);
  
@@ -176,36 +174,30 @@ app.post("/lmsusers/refresh-token", async (req, res) => {
   }
 });
 
-// image upload route
-app.post("/lmsusers/paymentConfirmation", verifyAccessToken, upload.single('image'), async (req, res, next) => {
-  try {
-      // Read the uploaded file
-      const imagePath = req.file.path;
-      const imageBuffer = fs.readFileSync(imagePath);
+// Middleware for parsing application/x-www-form-urlencoded
+app.use(bodyParser.urlencoded({ extended: true }));
 
-      // Convert the image buffer to a Base64 string
-      const base64Image = imageBuffer.toString('base64');
+// POST route for payment confirmation
+app.post('/lmsusers/payment-confirmation', upload.single('files'), async (req, res) => {
+  // Handle the form data
+  const name = req.body.name;
+  const emailid = req.body.emailid;
+  const mobile = req.body.mobile;
+  const files = req.file; // This will contain information about the uploaded file
+  const newDocument = new PaymentModel({
+    // Add the uploaded image to the image field
+    name,
+    emailid,
+    mobile,
+    files
+});
 
-      // Create a new document
-      const newDocument = new PaymentModel({
-          // Add the uploaded image to the image field
-          name,
-          emailid,
-          mobile,
-          image: {
-              data: base64Image,
-              contentType: req.file.mimetype
-          }
-      });
-
-      // Save the document to MongoDB
-      await newDocument.save();
-
-      res.status(200).send("Image uploaded successfully!");
-  } catch (error) {
-      console.error(error);
-      res.status(500).send("Error uploading image.");
-  }
+// Save the document to MongoDB
+await newDocument.save();
+  // Perform necessary operations with the received data
+  
+  // Send a response back to the client
+  res.json({ status: 'success', message: 'Payment confirmation received' });
 });
 
 // post method for contact
@@ -264,6 +256,37 @@ app.get("/lmsusers/contact", async (req, res) => {
     res.status(500).send('Server Error');
   }
 });
+
+
+app.get("/lmsusers/payment-confirmation", async (req, res, next) => {
+  try {
+    const payments = await PaymentModel.find();
+
+    if (!payments || payments.length === 0) {
+      return res.status(404).send("No payment confirmations found");
+    }
+
+    // Construct an array of payment confirmation data to send back
+    const paymentData = payments.map(payment => {
+      return {
+        _id: payment._id,
+        name: payment.name,
+        emailid: payment.emailid,
+        mobile: payment.mobile,
+        // You might not want to include the actual file data here, just metadata
+        // files: payment.files
+      };
+    });
+
+    res.status(200).json(paymentData);
+  } catch (error) {
+    console.error(error);
+    res.status(500).send("Error retrieving payment confirmations.");
+  }
+});
+
+
+
 app.listen(process.env.PORT || 8000, () => {
   console.log("Server has started");
 });
