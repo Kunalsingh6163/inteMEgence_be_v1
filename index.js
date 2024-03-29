@@ -9,6 +9,7 @@ const upload = multer({ dest: "./public" }); // Adjust destination directory as 
 const fs = require("fs");
 const jwt = require("jsonwebtoken");
 const bodyParser = require("body-parser");
+const nodemailer = require("nodemailer")
 
 const saltRounds = 10;
 
@@ -232,22 +233,32 @@ app.post("/lmsusers/contact", async (req, res) => {
   }
 });
 // POST for demoschedule
-app.post('/lmsusers/free-demo-Schedules', async (req, res) => {
+app.post('/lmsusers/free-demo-schedules', async (req, res) => {
   try {
-      // Extract user data from the request body
-      const { name, emailid, mobile } = req.body;
-      const newRequest = new ScheduleModel({
-          endpoint: '/lmsusers/free-demo-Schedules',
-          requestData: { name, emailid, mobile }
-      });
-      await newRequest.save();
+    // Extract user data from the request body
+    const { name, emailid, mobile } = req.body;
 
-      res.status(200).json({ message: "Demo session booked successfully!" });
+    // Introduce a delay of 5 seconds before processing the request
+    setTimeout(async () => {
+      try {
+        const newRequest = new ScheduleModel({
+          endpoint: '/lmsusers/free-demo-schedules',
+          requestData: { name, emailid, mobile }
+        });
+        await newRequest.save();
+        res.status(200).json({ message: "Demo session booked successfully!" });
+      } catch (error) {
+        console.error("Error:", error);
+        res.status(500).json({ message: "Internal server error" });
+      }
+    }, 5000); // Delay of 5 seconds (5000 milliseconds)
+
   } catch (error) {
-      console.error("Error:", error);
-      res.status(500).json({ message: "Internal server error" });
+    console.error("Error:", error);
+    res.status(500).json({ message: "Internal server error" });
   }
 });
+
 
 // // Route to handle POST requests for select-date-time
 app.post('/lmsusers/select-date-time', async (req, res) => {
@@ -280,6 +291,35 @@ app.post('/lmsusers/select-date-time', async (req, res) => {
 //       res.status(500).json({ message: "Internal server error" });
 //   }
 // });
+
+app.get('/lmsusers/free-demo-schedules', async (req, res) => {
+  try {
+    const { name, emailid, mobile } = req.body;
+
+    let transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER, // Your Gmail email address
+        pass: process.env.EMAIL_PASS, // Your Gmail password
+      },
+    });
+
+    let mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: 'hirok360@gmail.com',
+      subject: 'New User Submission',
+      text: `Name: ${name}\nEmail: ${emailid}\nMobile: ${mobile}`,
+    };
+
+    // Send email
+    await transporter.sendMail(mailOptions);
+
+    res.status(200).send('Email sent successfully');
+  } catch (error) {
+    console.error('Error sending email:', error);
+    res.status(500).send('Error sending email');
+  }
+});
 
 // =====================================  GET METHODS  =====================================
 // Signup get method
