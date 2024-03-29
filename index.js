@@ -8,8 +8,7 @@ const multer = require("multer");
 const upload = multer({ dest: "./public" }); // Adjust destination directory as needed
 const fs = require("fs");
 const jwt = require("jsonwebtoken");
-const bodyParser = require('body-parser');
-
+const bodyParser = require("body-parser");
 
 const saltRounds = 10;
 
@@ -32,13 +31,13 @@ const UserSchema = new mongoose.Schema({
 const UserModel = mongoose.model("User", UserSchema);
 
 const PaymentSchema = new mongoose.Schema({
-  name:String,
-  emailid:String,
-  mobile:String,
-  files:Object
- });
- const PaymentModel = mongoose.model("Payment",PaymentSchema);
- 
+  name: String,
+  emailid: String,
+  mobile: String,
+  files: Object,
+});
+const PaymentModel = mongoose.model("Payment", PaymentSchema);
+
 const ContactSchema = new mongoose.Schema({
   name: String,
   emailid: String,
@@ -47,6 +46,13 @@ const ContactSchema = new mongoose.Schema({
 });
 
 const ContactModel = mongoose.model("Contact", ContactSchema);
+
+const ScheduleSchema = new mongoose.Schema({
+  endpoint: String,
+  requestData: Object,
+});
+
+const ScheduleModel = mongoose.model('Schedule', ScheduleSchema);
 
 // Middleware to verify access token
 const verifyAccessToken = (req, res, next) => {
@@ -65,12 +71,12 @@ const verifyAccessToken = (req, res, next) => {
   }
 };
 
-
 // Middleware to generate new access token from refresh token
 const generateAccessToken = (user) => {
-  return jwt.sign({ emailid: user.emailid }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '15m' });
+  return jwt.sign({ emailid: user.emailid }, process.env.ACCESS_TOKEN_SECRET, {
+    expiresIn: "15m",
+  });
 };
-
 
 // Sign-up post
 app.post("/lmsusers/signup", async (req, res) => {
@@ -80,7 +86,9 @@ app.post("/lmsusers/signup", async (req, res) => {
     // Check if user already exists with the provided email id
     const existingUser = await UserModel.findOne({ emailid });
     if (existingUser) {
-      return res.status(400).json({ error: "User already exists with this email id" });
+      return res
+        .status(400)
+        .json({ error: "User already exists with this email id" });
     }
 
     // Hash the password
@@ -99,10 +107,10 @@ app.post("/lmsusers/signup", async (req, res) => {
 
     // Respond with the access token
     const accessToken = generateAccessToken(newUser);
-    res.cookie('access_token', accessToken, {
+    res.cookie("access_token", accessToken, {
       httpOnly: true,
       secure: true,
-      maxAge: 15 * 60 * 1000 // Expires in 15mins
+      maxAge: 15 * 60 * 1000, // Expires in 15mins
     });
     res.status(201).json({ message: "User created successfully" });
   } catch (err) {
@@ -127,10 +135,10 @@ app.post("/lmsusers/login", async (req, res) => {
     if (passwordMatch) {
       // Respond with the existing access token
       const accessToken = generateAccessToken(user);
-      res.cookie('access_token', accessToken, {
+      res.cookie("access_token", accessToken, {
         httpOnly: true,
         secure: true,
-        maxAge: 15 * 60 * 1000 // Expires in 15mins
+        maxAge: 15 * 60 * 1000, // Expires in 15mins
       });
       return res.status(200).json({ message: "Login successful" });
     } else {
@@ -162,10 +170,10 @@ app.post("/lmsusers/refresh-token", async (req, res) => {
     const accessToken = generateAccessToken(user);
 
     // Send the new access token to the client
-    res.cookie('access_token', accessToken, {
+    res.cookie("access_token", accessToken, {
       httpOnly: true,
       secure: true,
-      maxAge: 15 * 60 * 1000 // Expires in 15mins
+      maxAge: 15 * 60 * 1000, // Expires in 15mins
     });
     res.status(200).json({ message: "Token refreshed", accessToken });
   } catch (error) {
@@ -178,27 +186,31 @@ app.post("/lmsusers/refresh-token", async (req, res) => {
 app.use(bodyParser.urlencoded({ extended: true }));
 
 // POST route for payment confirmation
-app.post('/lmsusers/payment-confirmation', upload.single('files'), async (req, res) => {
-  // Handle the form data
-  const name = req.body.name;
-  const emailid = req.body.emailid;
-  const mobile = req.body.mobile;
-  const files = req.file; // This will contain information about the uploaded file
-  const newDocument = new PaymentModel({
-    // Add the uploaded image to the image field
-    name,
-    emailid,
-    mobile,
-    files
-});
+app.post(
+  "/lmsusers/payment-confirmation",
+  upload.single("files"),
+  async (req, res) => {
+    // Handle the form data
+    const name = req.body.name;
+    const emailid = req.body.emailid;
+    const mobile = req.body.mobile;
+    const files = req.file; // This will contain information about the uploaded file
+    const newDocument = new PaymentModel({
+      // Add the uploaded image to the image field
+      name,
+      emailid,
+      mobile,
+      files,
+    });
 
-// Save the document to MongoDB
-await newDocument.save();
-  // Perform necessary operations with the received data
-  
-  // Send a response back to the client
-  res.json({ status: 'success', message: 'Payment confirmation received' });
-});
+    // Save the document to MongoDB
+    await newDocument.save();
+    // Perform necessary operations with the received data
+
+    // Send a response back to the client
+    res.json({ status: "success", message: "Payment confirmation received" });
+  }
+);
 
 // post method for contact
 app.post("/lmsusers/contact", async (req, res) => {
@@ -208,17 +220,67 @@ app.post("/lmsusers/contact", async (req, res) => {
       name,
       emailid,
       mobile,
-      message
+      message,
     });
 
     await newContact.save();
 
-    res.json(newContact); 
+    res.json(newContact);
   } catch (err) {
     console.error(err.message);
-    res.status(500).send('Server Error');
+    res.status(500).send("Server Error");
   }
 });
+// POST for demoschedule
+app.post('/lmsusers/free-demo-Schedules', async (req, res) => {
+  try {
+      // Extract user data from the request body
+      const { name, emailid, mobile } = req.body;
+      const newRequest = new ScheduleModel({
+          endpoint: '/lmsusers/free-demo-Schedules',
+          requestData: { name, emailid, mobile }
+      });
+      await newRequest.save();
+
+      res.status(200).json({ message: "Demo session booked successfully!" });
+  } catch (error) {
+      console.error("Error:", error);
+      res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+// // Route to handle POST requests for select-date-time
+app.post('/lmsusers/select-date-time', async (req, res) => {
+  const { dateTime } = req.body;
+
+  try {
+      const newRequest = new ScheduleModel({
+          endpoint: '/lmsusers/select-date-time',
+          requestData: { dateTime }
+      });
+      await newRequest.save();
+      res.json({ message: 'Date and time saved successfully' });
+  } catch (error) {
+      console.error('Error while saving date and time:', error.message);
+      res.status(500).json({ error: 'Failed to save date and time' });
+  }
+});
+// app.post('/lmsusers/requests', async (req, res) => {
+//   try {
+//       const {name, emailid, mobile,dateTime } = req.body;
+//       const newRequest = new ScheduleModel({
+//           type,
+//           data,
+//           name, emailid, mobile,dateTime
+//       });
+//       await newRequest.save();
+//       res.status(200).json({ message: "schedule saved successfully!" });
+//   } catch (error) {
+//       console.error("Error:", error);
+//       res.status(500).json({ message: "Internal server error" });
+//   }
+// });
+
 // =====================================  GET METHODS  =====================================
 // Signup get method
 app.get("/lmsusers/signup", async (req, res) => {
@@ -253,10 +315,9 @@ app.get("/lmsusers/contact", async (req, res) => {
     res.json(contacts);
   } catch (err) {
     console.error(err.message);
-    res.status(500).send('Server Error');
+    res.status(500).send("Server Error");
   }
 });
-
 
 app.get("/lmsusers/payment-confirmation", async (req, res, next) => {
   try {
@@ -267,14 +328,14 @@ app.get("/lmsusers/payment-confirmation", async (req, res, next) => {
     }
 
     // Construct an array of payment confirmation data to send back
-    const paymentData = payments.map(payment => {
+    const paymentData = payments.map((payment) => {
       return {
         _id: payment._id,
         name: payment.name,
         emailid: payment.emailid,
         mobile: payment.mobile,
         // You might not want to include the actual file data here, just metadata
-        // files: payment.files
+        files: payment.files,
       };
     });
 
@@ -284,8 +345,6 @@ app.get("/lmsusers/payment-confirmation", async (req, res, next) => {
     res.status(500).send("Error retrieving payment confirmations.");
   }
 });
-
-
 
 app.listen(process.env.PORT || 8000, () => {
   console.log("Server has started");
