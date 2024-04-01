@@ -259,23 +259,6 @@ app.post('/lmsusers/free-demo-schedules', async (req, res) => {
   }
 });
 
-
-// // Route to handle POST requests for select-date-time
-app.post('/lmsusers/select-date-time', async (req, res) => {
-  const { dateTime } = req.body;
-
-  try {
-      const newRequest = new ScheduleModel({
-          endpoint: '/lmsusers/select-date-time',
-          requestData: { dateTime }
-      });
-      await newRequest.save();
-      res.json({ message: 'Date and time saved successfully' });
-  } catch (error) {
-      console.error('Error while saving date and time:', error.message);
-      res.status(500).json({ error: 'Failed to save date and time' });
-  }
-});
 // app.post('/lmsusers/requests', async (req, res) => {
 //   try {
 //       const {name, emailid, mobile,dateTime } = req.body;
@@ -294,7 +277,7 @@ app.post('/lmsusers/select-date-time', async (req, res) => {
 
 app.get('/lmsusers/free-demo-schedules', async (req, res) => {
   try {
-    const { name, emailid, mobile } = req.body;
+    const { name, emailid, mobile } = req.query;
 
     let transporter = nodemailer.createTransport({
       service: 'gmail',
@@ -321,6 +304,57 @@ app.get('/lmsusers/free-demo-schedules', async (req, res) => {
   }
 });
 
+// Endpoint for booking demo session
+app.post('/lmsusers/free-demo-schedules', async (req, res) => {
+  try {
+    // Extract user data from the request body
+    const { name, emailid, mobile } = req.body;
+
+    // Function to create a new schedule
+    const createNewSchedule = async () => {
+      try {
+        const newRequest = new ScheduleModel({
+          endpoint: '/lmsusers/free-demo-schedules',
+          requestData: { name, emailid, mobile }
+        });
+        await newRequest.save();
+        return { success: true, message: "Demo session booked successfully!" };
+      } catch (error) {
+        console.error("Error:", error);
+        return { success: false, message: "Internal server error" };
+      }
+    };
+
+    // Concurrently execute both API calls
+    const [emailResponse, scheduleResponse] = await Promise.all([
+      transporter.sendMail(req.body), // Sending email
+      createNewSchedule() // Creating new schedule
+    ]);
+
+    res.status(200).json({ emailResponse, scheduleResponse });
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+
+// // Route to handle POST requests for select-date-time
+app.post('/lmsusers/select-date-time', async (req, res) => {
+  const { dateTime } = req.body;
+
+  try {
+      const newRequest = new ScheduleModel({
+          endpoint: '/lmsusers/select-date-time',
+          requestData: { dateTime }
+      });
+      await newRequest.save();
+      res.json({ message: 'Date and time saved successfully' });
+  } catch (error) {
+      console.error('Error while saving date and time:', error.message);
+      res.status(500).json({ error: 'Failed to save date and time' });
+  }
+});
 // =====================================  GET METHODS  =====================================
 // Signup get method
 app.get("/lmsusers/signup", async (req, res) => {
