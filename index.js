@@ -85,8 +85,16 @@ const forgotPasswordSchema = new mongoose.Schema({
   otp:String
 });
 
-// Create ForgotPassword model
 const ForgotPassword = mongoose.model('ForgotPassword', forgotPasswordSchema);
+
+const pdfUserSchema = new mongoose.Schema({
+  name:String,
+  emailid:String,
+  mobile:String
+});
+
+const pdfUser = mongoose.model('pdfUser', pdfUserSchema);
+
 
 
 
@@ -337,34 +345,7 @@ app.post('/lmsusers/free-demo-schedules', async (req, res) => {
   }
 });
 
-app.get('/lmsusers/free-demo-schedules', async (req, res) => {
-  try {
-    const { name, emailid, mobile } = req.query;
 
-    let transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.EMAIL_USER, // Your Gmail email address
-        pass: process.env.EMAIL_PASS, // Your Gmail password
-      },
-    });
-
-    let mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: 'hirok360@gmail.com',
-      subject: 'New User Submission',
-      text: `Name: ${name}\nEmail: ${emailid}\nMobile: ${mobile}`,
-    };
-
-    // Send email
-    await transporter.sendMail(mailOptions);
-
-    res.status(200).send('Email sent successfully');
-  } catch (error) {
-    console.error('Error sending email:', error);
-    res.status(500).send('Error sending email');
-  }
-});
 
 // nodemailer transporter
 const transporter = nodemailer.createTransport({
@@ -614,6 +595,27 @@ app.post('/lmsusers/verify-otp', async (req, res) => {
   }
 });
 
+// Post for pdfUser
+app.post("/lmsusers/pdfUser", async (req, res) => {
+  try {
+    const { name, emailid, mobile } = req.body;
+    const newContact = new pdfUser({
+      name,
+      emailid,
+      mobile,
+    });
+
+    await newContact.save();
+
+    res.json(newContact);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server Error");
+  }
+});
+
+
+
   // =====================================  PUT METHODS  =====================================
 
   // Route for changing password
@@ -763,6 +765,66 @@ app.get('/lmsusers/free-demo-schedules-admin', async (req, res) => {
   }
 });
 
+
+app.get('/lmsusers/free-demo-schedules', async (req, res) => {
+  try {
+    const { name, emailid, mobile } = req.query;
+
+    let transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER, // Your Gmail email address
+        pass: process.env.EMAIL_PASS, // Your Gmail password
+      },
+    });
+
+    let mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: 'hirok360@gmail.com',
+      subject: 'user booked demo',
+      text: `Name: ${name}\nEmail: ${emailid}\nMobile: ${mobile}`,
+    };
+
+    // Send email
+    await transporter.sendMail(mailOptions);
+
+    res.status(200).send('Email sent successfully');
+  } catch (error) {
+    console.error('Error sending email:', error);
+    res.status(500).send('Error sending email');
+  }
+});
+
+
+
+app.get('/lmsusers/pdfUser', async (req, res) => {
+  try {
+    const { name, emailid, mobile } = req.query;
+
+    let transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER, // Your Gmail email address
+        pass: process.env.EMAIL_PASS, // Your Gmail password
+      },
+    });
+
+    let mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: 'hirok360@gmail.com',
+      subject: 'pdf user',
+      text: `Name: ${name}\nEmail: ${emailid}\nMobile: ${mobile}`,
+    };
+
+    // Send email
+    await transporter.sendMail(mailOptions);
+
+    res.status(200).send('Email sent successfully');
+  } catch (error) {
+    console.error('Error sending email:', error);
+    res.status(500).send('Error sending email');
+  }
+});
 
 
 app.listen(process.env.PORT || 8000, () => {
