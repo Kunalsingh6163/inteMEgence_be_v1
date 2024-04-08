@@ -319,31 +319,31 @@ app.post("/lmsusers/contact", async (req, res) => {
     
 
 // POST for demoschedule
-app.post('/lmsusers/free-demo-schedules', async (req, res) => {
-  try {
-    // Extract user data from the request body
-    const { name, emailid, mobile } = req.body;
+// app.post('/lmsusers/free-demo-schedules', async (req, res) => {
+//   try {
+//     // Extract user data from the request body
+//     const { name, emailid, mobile } = req.body;
 
-    // Introduce a delay of 5 seconds before processing the request
-    setTimeout(async () => {
-      try {
-        const newRequest = new ScheduleModel({
-          endpoint: '/lmsusers/free-demo-schedules',
-          requestData: { name, emailid, mobile }
-        });
-        await newRequest.save();
-        res.status(200).json({ message: "Demo session booked successfully!" });
-      } catch (error) {
-        console.error("Error:", error);
-        res.status(500).json({ message: "Internal server error" });
-      }
-    }, 5000); // Delay of 5 seconds (5000 milliseconds)
+//     // Introduce a delay of 5 seconds before processing the request
+//     setTimeout(async () => {
+//       try {
+//         const newRequest = new ScheduleModel({
+//           endpoint: '/lmsusers/free-demo-schedules',
+//           requestData: { name, emailid, mobile }
+//         });
+//         await newRequest.save();
+//         res.status(200).json({ message: "Demo session booked successfully!" });
+//       } catch (error) {
+//         console.error("Error:", error);
+//         res.status(500).json({ message: "Internal server error" });
+//       }
+//     }, 5000); // Delay of 5 seconds (5000 milliseconds)
 
-  } catch (error) {
-    console.error("Error:", error);
-    res.status(500).json({ message: "Internal server error" });
-  }
-});
+//   } catch (error) {
+//     console.error("Error:", error);
+//     res.status(500).json({ message: "Internal server error" });
+//   }
+// });
 
 
 
@@ -531,48 +531,55 @@ app.post('/lmsusers/forgot-password', async (req, res) => {
     return res.status(400).json({ error: 'Email address is required' });
   }
 
-  const otpObj = generateOTP();
+  const user = await UserModel.findOne({ emailid });
+  if (!user) {
+    return res.status(404).json({ error: 'No user Found with this email address' });
+  }
+  else
+  {
+    const otpObj = generateOTP();
 
-  // Create a new instance of the ForgotPassword schema
-  const forgotPassword = new ForgotPassword({
-    emailid: emailid,
-    otp: otpObj.otp, // Access the OTP from the generated object
-    expiresAt: otpObj.expiresAt 
-  });
+    // Create a new instance of the ForgotPassword schema
+    const forgotPassword = new ForgotPassword({
+      emailid: emailid,
+      otp: otpObj.otp, // Access the OTP from the generated object
+      expiresAt: otpObj.expiresAt 
+    });
 
-  try {
-    // Save the forgotPassword instance
-    await forgotPassword.save();
+    try {
+      // Save the forgotPassword instance
+      await forgotPassword.save();
 
-    // Email options
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: emailid,
-      subject: 'Your OTP',
-      text: `Your OTP is: ${otpObj.otp}` // Use otp from otpObj
-    };
+      // Email options
+      const mailOptions = {
+        from: process.env.EMAIL_USER,
+        to: emailid,
+        subject: 'Your OTP',
+        text: `Your OTP is: ${otpObj.otp}` // Use otp from otpObj
+      };
 
-    // Send email
-    const info = await transporter.sendMail(mailOptions);
-    console.log('Email sent:', info.response);
-    res.status(200).json({ message: 'OTP sent successfully' });
-  } catch (error) {
-    console.error('Error:', error);
-    return res.status(500).json({ error: 'Failed to send OTP' });
+      // Send email
+      const info = await transporter.sendMail(mailOptions);
+      console.log('Email sent:', info.response);
+      res.status(200).json({ message: 'OTP sent successfully' });
+    } catch (error) {
+      console.error('Error:', error);
+      return res.status(500).json({ error: 'Failed to send OTP' });
+    }
   }
 });
 
 // POST endpoint to verify OTP
 app.post('/lmsusers/verify-otp', async (req, res) => {
-  const { emailid, otp } = req.body;
+  const {  otp } = req.body;
 
-  if (!emailid || !otp) {
-    return res.status(400).json({ error: 'Email address and OTP are required' });
+  if (!otp) {
+    return res.status(400).json({ error: 'Invalid OTP' });
   }
 
   try {
     // Find the corresponding forgotPassword instance in the database
-    const forgotPasswordEntry = await ForgotPassword.findOne({ emailid, otp });
+    const forgotPasswordEntry = await ForgotPassword.findOne({ otp });
 
     if (!forgotPasswordEntry) {
       return res.status(404).json({ error: 'Invalid OTP' });
