@@ -8,19 +8,12 @@ const fs = require("fs");
 const jwt = require("jsonwebtoken");
 const bodyParser = require("body-parser");
 const nodemailer = require("nodemailer")
-
-
-// const admin = require('firebase-admin');
-
-// const serviceAccount = require(".//")
-// admin.initializeApp({
-//   credential: admin.credential.cert(serviceAccount)
-// });
-
-// const auth = admin.auth();
-// const messaging = admin.messaging();
+const passport = require('passport');
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const session = require('express-session');
 
 app.use(bodyParser.json());
+app.use(passport.initialize());
 
 const saltRounds = 10;
 
@@ -33,7 +26,12 @@ mongoose
   .catch((err) => console.error("Error connecting to MongoDB:", err));
 
 const UserSchema = new mongoose.Schema({
-  name: String,
+  googleId: {
+    type: String,
+    unique: true,
+    required: true
+  },
+    name: String,
   mobile: String,
   emailid: String,
   password: String,
@@ -62,22 +60,15 @@ const ContactSchema = new mongoose.Schema({
 const ContactModel = mongoose.model("Contact", ContactSchema);
 
 const ScheduleSchema = new mongoose.Schema({
-  endpoint: String,
-  requestData: Object,
+  demoType:String,
+  userName:String,
+  userEmail:String,
+  userMobile:String,
+  selectedDateTime:String
 });
 
 const ScheduleModel = mongoose.model('Schedule', ScheduleSchema);
 
-const syllabusSchema = new mongoose.Schema({
-  name: String,
-  emailid: String,
-  mobile: String,
-  coursename:String,
-  courseId:String
-});
-
-// Create a model based on the schema
-const Syllabus = mongoose.model('Syllabus', syllabusSchema);
 
 // model for forgot-password
 const forgotPasswordSchema = new mongoose.Schema({
@@ -90,7 +81,9 @@ const ForgotPassword = mongoose.model('ForgotPassword', forgotPasswordSchema);
 const pdfUserSchema = new mongoose.Schema({
   name:String,
   emailid:String,
-  mobile:String
+  mobile:String,
+  courseName:String,
+  
 });
 
 const pdfUser = mongoose.model('pdfUser', pdfUserSchema);
@@ -121,6 +114,62 @@ const generateAccessToken = (user) => {
     expiresIn: "15m",
   });
 };
+
+app.use(session({
+  secret: 'hello123', // Change this to a secret key for session encryption
+  resave: false,
+  saveUninitialized: false
+}));
+// Google OAuth2 configuration
+passport.use(new GoogleStrategy({
+  clientID: '502417525504-r1ad88a8n7c38unlter2dfo5n189ivp5.apps.googleusercontent.com',
+  clientSecret: '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',
+  callbackURL: '/auth/google/callback'
+},
+async (accessToken, refreshToken, profile, done) => {
+  try {
+    // Find or create user in the database based on Google profile
+    let user = await UserModel.findOne({ googleId: profile.id });
+
+    if (!user) {
+      // If user does not exist, create a new user
+      user = new UserModel({
+        googleId: profile.id,
+        emailid: profile.emails[0].value,
+        name: profile.displayName
+      });
+      await user.save();
+    }
+
+    // Pass the user to the next middleware
+    done(null, user);
+  } catch (err) {
+    done(err);
+  }
+}));
+
+// Routes
+
+// Google OAuth2 authentication route
+app.get('/auth/google',
+  passport.authenticate('google', { scope: ['profile', 'email'] })
+);
+
+// Google OAuth2 callback route
+app.get('/auth/google/callback',
+  passport.authenticate('google', { failureRedirect: '/login' }),
+  (req, res) => {
+    // Successful authentication, redirect to a page or send response
+    res.redirect('/dashboard');
+  }
+);
+passport.serializeUser((user, done) => {
+  done(null, user);
+});
+
+passport.deserializeUser((user, done) => {
+  done(null, user);
+});
 
 // Sign-up post
 app.post("/lmsusers/signup", async (req, res) => {
@@ -286,6 +335,57 @@ app.post(
         // Save the document to MongoDB
         await newDocument.save();
 
+        let transporter = nodemailer.createTransport({
+          service: 'gmail',
+          auth: {
+            user: process.env.EMAIL_USER, // Your Gmail email address
+            pass: process.env.EMAIL_PASS, // Your Gmail password
+          },
+        });
+    
+        let mailOptions = {
+          from: process.env.EMAIL_USER,
+          to: 'hirok360@gmail.com',
+          subject: 'Payment Confirmation and Course Enrollment Details',
+          text: `
+          Dear Admin,
+
+          I hope this message finds you well. I am writing to confirm the successful submission of my payment for enrollment in ${courseName}. 
+          Please find below the details of my transaction and enrollment for your records and further processing.
+
+          User Information:
+          - Name: ${name}
+          - Email: ${emailid}
+          - Mobile: ${mobile}
+
+          Course Details:
+          - Course ID: ${courseId}
+          - Course Name: ${courseName}
+
+          Payment Confirmation:
+          I have successfully completed the payment process for the above-mentioned course. The payment was made on ${new Date().toDateString()}, 
+          and I have attached the payment confirmation receipt along with this email for your reference.
+
+          Uploaded Documents/Images:
+          Link: ${imageURL}
+
+          I kindly request you to confirm the receipt of my payment, the successful enrollment in ${courseName}, and the submission of all required documents. 
+          If there are any additional steps I need to complete or if further information is required from my side, please let me know at your earliest convenience.
+
+          I am looking forward to starting this learning journey and am eager to dive into the course materials. Thank you for providing this opportunity 
+          and for your assistance in completing the enrollment process.
+
+          Best regards,
+
+          ${name}
+          ${emailid}
+          ${mobile}
+        `
+      };
+
+    
+        await transporter.sendMail(mailOptions);
+    
         // Send a response back to the client
         res.json({ status: "success", message: "Payment confirmation received" });
       });
@@ -309,41 +409,39 @@ app.post("/lmsusers/contact", async (req, res) => {
     });
 
     await newContact.save();
+    
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: "hirok360@gmail.com",
+      subject: 'New Contact Submission Received',
+      text: `
+        Dear Admin,
 
+        I hope this message finds you well. We have received a new contact submission through our website with the following details:
+
+        - Name: ${name}
+        - Email: ${emailid}
+        - Mobile: ${mobile}
+        - Message: ${message}
+
+        Please find the user's contact information above for your reference. It is advisable to reach out to the user at your earliest convenience to address their needs or inquiries.
+
+        Should you require any further information or assistance in contacting the user, please do not hesitate to get in touch with me.
+
+        Best Regards,
+
+        ${name}
+        ${emailid}
+        ${mobile}
+      `
+    });
+    
     res.json(newContact);
   } catch (err) {
     console.error(err.message);
     res.status(500).send("Server Error");
   }
 });
-    
-
-// POST for demoschedule
-// app.post('/lmsusers/free-demo-schedules', async (req, res) => {
-//   try {
-//     // Extract user data from the request body
-//     const { name, emailid, mobile } = req.body;
-
-//     // Introduce a delay of 5 seconds before processing the request
-//     setTimeout(async () => {
-//       try {
-//         const newRequest = new ScheduleModel({
-//           endpoint: '/lmsusers/free-demo-schedules',
-//           requestData: { name, emailid, mobile }
-//         });
-//         await newRequest.save();
-//         res.status(200).json({ message: "Demo session booked successfully!" });
-//       } catch (error) {
-//         console.error("Error:", error);
-//         res.status(500).json({ message: "Internal server error" });
-//       }
-//     }, 5000); // Delay of 5 seconds (5000 milliseconds)
-
-//   } catch (error) {
-//     console.error("Error:", error);
-//     res.status(500).json({ message: "Internal server error" });
-//   }
-// });
 
 
 
@@ -358,127 +456,52 @@ const transporter = nodemailer.createTransport({
   to: process.env.To_Email
 });
 
-// Endpoint for booking demo session
-app.post('/lmsusers/free-demo-schedules', async (req, res) => {
-  try {
-    // Extract user data from the request body
-    const { name, emailid, mobile } = req.body;
 
-    // Function to create a new schedule
-    const createNewSchedule = async () => {
-      try {
-        const newRequest = new ScheduleModel({
-          endpoint: '/lmsusers/free-demo-schedules',
-          requestData: { name, emailid, mobile }
-        });
-        await newRequest.save();
-        return { success: true, message: "Demo session booked successfully!" };
-      } catch (error) {
-        console.error("Error:", error);
-        return { success: false, message: "Internal server error" };
-      }
-    };
+    // POST endpoint for initiating and verifying phone number
+    // app.post("/lmsusers/verify", (req, res) => {
+    //     const { verifySid, phoneNumber } = req.body;
 
-    // Concurrently execute both API calls
-    const [emailResponse, scheduleResponse] = await Promise.all([
-      transporter.sendMail(req.body), // Sending email
-      createNewSchedule() // Creating new schedule
-    ]);
+    //     // Initiate verification +process
+    //     client.verify.v2.services(verifySid)
+    //       .verifications.create({ to: phoneNumber, channel: "sms" })
+    //       .then((verification) => {
+    //         console.log("Verification initiated:", verification.sid);
+    //         res.send({ status: "Verification initiated", verificationSid: verification.sid });
+    //       })
+    //       .catch(error => {
+    //         console.error("Error initiating verification:", error);
+    //         res.status(500).send({ error: "Error initiating verification" });
+    //       });
+    //   });
 
-    res.status(200).json({ emailResponse, scheduleResponse });
-  } catch (error) {
-    console.error("Error:", error);
-    res.status(500).json({ message: "Internal server error" });
-  }
-});
+// const admin = require('firebase-admin');
 
-
-// Route to handle POST requests for select-date-time
-app.post('/lmsusers/select-date-time', async (req, res) => {
-  const { dateTime } = req.body;
-
-  try {
-      const newRequest = new ScheduleModel({
-          endpoint: '/lmsusers/select-date-time',
-          requestData: { dateTime }
-      });
-      await newRequest.save();
-      res.json({ message: 'Date and time saved successfully' });
-  } catch (error) {
-      console.error('Error while saving date and time:', error.message);
-      res.status(500).json({ error: 'Failed to save date and time' });
-  }
-});
-
-
-// POST endpoint for initiating and verifying phone number
-// app.post("/lmsusers/verify", (req, res) => {
-//   const { verifySid, phoneNumber } = req.body;
-
-//   // Initiate verification +process
-//   client.verify.v2.services(verifySid)
-//     .verifications.create({ to: phoneNumber, channel: "sms" })
-//     .then((verification) => {
-//       console.log("Verification initiated:", verification.sid);
-//       res.send({ status: "Verification initiated", verificationSid: verification.sid });
-//     })
-//     .catch(error => {
-//       console.error("Error initiating verification:", error);
-//       res.status(500).send({ error: "Error initiating verification" });
-//     });
+// const serviceAccount = require(".//")
+// admin.initializeApp({
+//   credential: admin.credential.cert(serviceAccount)
 // });
 
-// POST endpoint for verifying OTP
-// app.post("/lmsusers/verify/check", (req, res) => {
-//   const { verifySid, phoneNumber, otpCode } = req.body;
+// const auth = admin.auth();
+// const messaging = admin.messaging();
+    // POST endpoint for verifying OTP
+    // app.post("/lmsusers/verify/check", (req, res) => {
+    //     const { verifySid, phoneNumber, otpCode } = req.body;
 
-//   // Verify OTP
-//   client.verify.v2.services(verifySid)
-//     .verificationChecks.create({ to: phoneNumber, code: otpCode })
-//     .then((verification_check) => {
-//       console.log("Verification check status:", verification_check.status);
-//       res.send({ status: verification_check.status });
-//     })
-//     .catch(error => {
-//       console.error("Error verifying OTP:", error);
-//       res.status(500).send({ error: "Error verifying OTP" });
-//     });
-// });
+    //     // Verify OTP
+    //     client.verify.v2.services(verifySid)
+    //       .verificationChecks.create({ to: phoneNumber, code: otpCode })
+    //       .then((verification_check) => {
+    //         console.log("Verification check status:", verification_check.status);
+    //         res.send({ status: verification_check.status });
+    //       })
+    //       .catch(error => {
+    //         console.error("Error verifying OTP:", error);
+    //         res.status(500).send({ error: "Error verifying OTP" });
+    //       });
+    //   });
 
 
-// POST route to save user data
-app.post('/lmsusers/syllabus', async (req, res) => {
-  try {
-    const { name, emailid, mobile } = req.body;
 
-    // Save user data to MongoDB
-    const syllabus = new Syllabus({ name, emailid, mobile });
-    await syllabus.save();
-
-    // Send email
-    let transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.EMAIL_USER, // Your Gmail email address
-        pass: process.env.EMAIL_PASS, // Your Gmail password
-      },
-    });
-
-    let mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: 'hirok360@gmail.com',
-      subject: 'New syllabus Submission',
-      text: `Name: ${name}\nEmail: ${emailid}\nMobile: ${mobile}`,
-    };
-
-    await transporter.sendMail(mailOptions);
-
-    res.status(200).send('Email sent and data saved successfully');
-  } catch (error) {
-    console.error('Error sending email or saving data:', error);
-    res.status(500).send('Error sending email or saving data');
-  }
-});
 
 
 // // Function to generate random OTP
@@ -554,10 +577,20 @@ app.post('/lmsusers/forgot-password', async (req, res) => {
       const mailOptions = {
         from: process.env.EMAIL_USER,
         to: emailid,
-        subject: 'Your OTP',
-        text: `Your OTP is: ${otpObj.otp}` // Use otp from otpObj
-      };
+        subject: 'Your Password Reset OTP',
+        text: `
+          Dear ${user.name},
 
+          You've requested to reset your password. Please use the OTP below to proceed with setting up a new password:
+
+          OTP: ${otpObj.otp}
+
+          This OTP is valid for 10 minutes. If you did not request a password reset, please ignore this email or contact our support team for assistance.
+
+          Best regards,
+          InteMEgencePerk Support Team.
+        `
+      };
       // Send email
       const info = await transporter.sendMail(mailOptions);
       console.log('Email sent:', info.response);
@@ -605,21 +638,61 @@ app.post('/lmsusers/verify-otp', async (req, res) => {
 // Post for pdfUser
 app.post("/lmsusers/pdfUser", async (req, res) => {
   try {
-    const { name, emailid, mobile } = req.body;
-    const newContact = new pdfUser({
+    const { name, emailid, mobile , courseName} = req.body;
+    const newpdf = new pdfUser({
       name,
       emailid,
       mobile,
+      courseName,
+      
     });
 
-    await newContact.save();
+    await newpdf.save();
 
-    res.json(newContact);
+    res.json(newpdf);
   } catch (err) {
     console.error(err.message);
     res.status(500).send("Server Error");
   }
 });
+
+// Post for demoschedule
+app.post('/lmsusers/select-date-time', async (req, res) => {
+  try {
+    const {demoType, userName, userEmail, userMobile, selectedDateTime } = req.body; 
+    const newRequest = new ScheduleModel({
+      demoType,
+      userName,
+      userEmail,
+      userMobile,
+      selectedDateTime
+    });
+    await newRequest.save();
+    let transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER, // Your Gmail email address
+        pass: process.env.EMAIL_PASS, // Your Gmail password
+      },
+    });
+
+    let mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: userEmail,
+      subject: 'Demo Scheduled Successfully',
+      text: `Dear ${userName},\n\nWe're thrilled to inform you that your demo has been successfully scheduled, and we can't wait to show you what we have in store! Below are your booking details for your records:\n\n${demoType}\nName: ${userName}\nEmail: ${userEmail}\nMobile: ${userMobile}\nScheduled Date and Time: ${selectedDateTime}\n\nPlease ensure the above details are correct. Should you need to make any changes or if you have any questions ahead of your demo, do not hesitate to contact us via email or phone.\n\nWe appreciate your interest and are looking forward to demonstrating our product/service to you. Thank you for choosing us for your needs. Expect a session filled with insights and answers to all your queries.\n\nBest Regards,\n\nInteMEgencePerk Team,\n\nP.S. Please feel free to prepare any questions or specific areas you'd like us to focus on during your demo. Our aim is to make this experience as valuable as possible for you.`,
+    };
+
+    await transporter.sendMail(mailOptions);
+    res.status(200).send('Email sent successfully');
+  } catch (error) {
+    console.error('Error sending email or saving booking details:', error);
+    res.status(500).send('Error sending email or saving booking details');
+  }
+});
+
+
+
 
 
 
@@ -742,18 +815,7 @@ app.get("/uploads/:filename", (req, res) => {
 });
 
 
-// GET route to fetch all user data
-app.get('/lmsusers/syllabus', async (req, res) => {
-  try {
-    const users = await Syllabus.find();
-    res.json(users);
-  } catch (error) {
-    console.error('Error fetching users:', error);
-    res.status(500).send('Error fetching users');
-  }
-});
-
-
+// GET for schedules admin
 app.get('/lmsusers/free-demo-schedules-admin', async (req, res) => {
   try {
     // Fetch all schedules from the database
@@ -772,42 +834,11 @@ app.get('/lmsusers/free-demo-schedules-admin', async (req, res) => {
   }
 });
 
-
-app.get('/lmsusers/free-demo-schedules', async (req, res) => {
-  try {
-    const { name, emailid, mobile } = req.query;
-
-    let transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.EMAIL_USER, // Your Gmail email address
-        pass: process.env.EMAIL_PASS, // Your Gmail password
-      },
-    });
-
-    let mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: 'hirok360@gmail.com',
-      subject: 'user booked demo',
-      text: `Name: ${name}\nEmail: ${emailid}\nMobile: ${mobile}`,
-    };
-
-    // Send email
-    await transporter.sendMail(mailOptions);
-
-    res.status(200).send('Email sent successfully');
-  } catch (error) {
-    console.error('Error sending email:', error);
-    res.status(500).send('Error sending email');
-  }
-});
-
-
-
+// GET fro pdfdownload
 app.get('/lmsusers/pdfUser', async (req, res) => {
   try {
-    const { name, emailid, mobile } = req.query;
-
+    const { name, emailid, mobile, courseName } = req.query;
+    
     let transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
@@ -818,9 +849,25 @@ app.get('/lmsusers/pdfUser', async (req, res) => {
 
     let mailOptions = {
       from: process.env.EMAIL_USER,
-      to: 'hirok360@gmail.com',
-      subject: 'pdf user',
-      text: `Name: ${name}\nEmail: ${emailid}\nMobile: ${mobile}`,
+      to: 'hirok360@gmail.com', // Change this to the recipient's email address
+      subject: 'PDF User',
+      text: `
+        Dear Admin inteMEgencePerk,
+
+        I hope this email finds you well. I recently downloaded the syllabus for ${courseName} from the InteMEgencePerk website,
+        and wanted to reach out for some clarifications.
+
+        Name: ${name}
+        Email: ${emailid}
+        Mobile: ${mobile}
+        Course Name: ${courseName}
+
+        Thank you for your attention to these matters. I look forward to your response.
+
+        Best regards,
+        ${name}
+        ${emailid}
+      `,
     };
 
     // Send email
@@ -832,6 +879,7 @@ app.get('/lmsusers/pdfUser', async (req, res) => {
     res.status(500).send('Error sending email');
   }
 });
+
 
 
 app.listen(process.env.PORT || 8000, () => {
